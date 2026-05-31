@@ -3,10 +3,12 @@ output "alb_dns_name" {
   value       = "http://${aws_lb.main.dns_name}"
 }
 
+/*
 output "s3_bucket_name" {
   description = "Naziv S3 bucketa za statičke fajlove"
   value       = aws_s3_bucket.static.bucket
 }
+*/
 
 output "rds_endpoint" {
   description = "Adresa baze podataka"

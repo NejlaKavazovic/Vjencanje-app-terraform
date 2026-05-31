@@ -197,15 +197,17 @@ resource "aws_security_group" "rds" {
   }
 }
 
+/* 
 # S3 Bucket
 resource "aws_s3_bucket" "static" {
   bucket        = "vjencanje-app-static-${random_string.suffix.result}"
   force_destroy = true
-
+  object_lock_enabled = false
   tags = {
     Name = "vjencanje-static"
   }
 }
+*/
 
 resource "random_string" "suffix" {
   length  = 8
@@ -213,6 +215,7 @@ resource "random_string" "suffix" {
   upper   = false
 }
 
+/*
 resource "aws_s3_bucket_public_access_block" "static" {
   bucket = aws_s3_bucket.static.id
 
@@ -239,6 +242,7 @@ resource "aws_s3_bucket_policy" "static" {
     ]
   })
 }
+*/
 
 # RDS - PostgreSQL baza podataka
 resource "aws_db_subnet_group" "main" {
@@ -374,6 +378,39 @@ resource "aws_lb_target_group_attachment" "ec2_2" {
   port             = 80
 }
 
+# Target Group za backend (port 8000)
+
+resource "aws_lb_target_group" "backend" {
+  name     = "vjencanje-backend-tg"
+  port     = 8000
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
+
+  health_check {
+    path                = "/api/health"
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    interval            = 30
+    matcher             = "200-404"
+  }
+
+  tags = {
+    Name = "vjencanje-backend-tg"
+  }
+}
+
+resource "aws_lb_target_group_attachment" "backend_1" {
+  target_group_arn = aws_lb_target_group.backend.arn
+  target_id        = aws_instance.backend_1.id
+  port             = 8000
+}
+
+resource "aws_lb_target_group_attachment" "backend_2" {
+  target_group_arn = aws_lb_target_group.backend.arn
+  target_id        = aws_instance.backend_2.id
+  port             = 8000
+}
+
 resource "aws_lb_listener" "main" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
@@ -384,3 +421,20 @@ resource "aws_lb_listener" "main" {
     target_group_arn = aws_lb_target_group.main.arn
   }
 }
+
+resource "aws_lb_listener_rule" "backend" {
+  listener_arn = aws_lb_listener.main.arn
+  priority     = 100
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.backend.arn
+  }
+
+ condition {
+  path_pattern {
+    values = ["/notes", "/notes/*"]
+  }
+}
+}
+
