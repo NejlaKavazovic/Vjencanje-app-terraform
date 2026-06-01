@@ -11,7 +11,7 @@ provider "aws" {
   region = var.region
 }
 
-# VPC
+# Kreiranje VPC mreze za aplikaciju
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
@@ -31,7 +31,7 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
-# Public Subneti (za EC2 i ALB)
+# Javni subneti za EC2 instance i load balancer
 resource "aws_subnet" "public_1" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
@@ -54,7 +54,7 @@ resource "aws_subnet" "public_2" {
   }
 }
 
-# Private Subneti (za RDS)
+# Privatni subneti gdje ce biti baza podataka
 resource "aws_subnet" "private_1" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.3.0/24"
@@ -75,7 +75,7 @@ resource "aws_subnet" "private_2" {
   }
 }
 
-# Route Table za public subnete
+# Route Table za javne subnete
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -101,7 +101,7 @@ resource "aws_route_table_association" "public_2" {
 
 # Security Groups
 
-# SG za ALB - prima promet sa interneta
+# SG za ALB
 resource "aws_security_group" "alb" {
   name        = "alb-sg"
   description = "Security group za Application Load Balancer"
@@ -126,7 +126,7 @@ resource "aws_security_group" "alb" {
   }
 }
 
-# SG za EC2 - prima promet samo od ALB-a
+# Security Groups za EC2
 resource "aws_security_group" "ec2" {
   name        = "ec2-sg"
   description = "Security group za EC2 instance"
@@ -140,17 +140,10 @@ resource "aws_security_group" "ec2" {
   }
 
   ingress {
-    from_port       = 8000
-    to_port         = 8000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
-
-  ingress {
-    from_port       = 4000
-    to_port         = 4000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
@@ -172,7 +165,7 @@ resource "aws_security_group" "ec2" {
   }
 }
 
-# SG za RDS - prima promet samo od EC2
+# Security Groups za RDS
 resource "aws_security_group" "rds" {
   name        = "rds-sg"
   description = "Security group za RDS bazu podataka"
@@ -197,54 +190,7 @@ resource "aws_security_group" "rds" {
   }
 }
 
-/* 
-# S3 Bucket
-resource "aws_s3_bucket" "static" {
-  bucket        = "vjencanje-app-static-${random_string.suffix.result}"
-  force_destroy = true
-  object_lock_enabled = false
-  tags = {
-    Name = "vjencanje-static"
-  }
-}
-*/
-
-resource "random_string" "suffix" {
-  length  = 8
-  special = false
-  upper   = false
-}
-
-/*
-resource "aws_s3_bucket_public_access_block" "static" {
-  bucket = aws_s3_bucket.static.id
-
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
-}
-
-resource "aws_s3_bucket_policy" "static" {
-  bucket     = aws_s3_bucket.static.id
-  depends_on = [aws_s3_bucket_public_access_block.static]
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "PublicReadGetObject"
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.static.arn}/*"
-      }
-    ]
-  })
-}
-*/
-
-# RDS - PostgreSQL baza podataka
+# RDS
 resource "aws_db_subnet_group" "main" {
   name       = "vjencanje-db-subnet-group"
   subnet_ids = [aws_subnet.private_1.id, aws_subnet.private_2.id]
@@ -273,9 +219,7 @@ resource "aws_db_instance" "main" {
   }
 }
 
-# EC2 Instance (2 instance za HA)
-
-# Najnoviji Amazon Linux 2 AMI
+# EC2 Instance
 data "aws_ami" "amazon_linux" {
   most_recent = true
   owners      = ["amazon"]
@@ -286,7 +230,6 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
-# User data skripta koja se pokreće pri startu EC2
 locals {
   user_data = <<-EOF
     #!/bin/bash
@@ -294,12 +237,8 @@ locals {
     amazon-linux-extras install docker -y
     service docker start
     usermod -a -G docker ec2-user
-
-    # Pokretanje frontend kontejnera
     docker pull ${var.frontend_image}
     docker run -d -p 80:80 --name frontend ${var.frontend_image}
-
-    # Pokretanje backend kontejnera
     docker pull ${var.backend_image}
     docker run -d -p 8000:8000 --name backend \
       -e DB_HOST=${aws_db_instance.main.address} \
@@ -378,7 +317,18 @@ resource "aws_lb_target_group_attachment" "ec2_2" {
   port             = 80
 }
 
-# Target Group za backend (port 8000)
+resource "aws_lb_listener" "main" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.main.arn
+  }
+}
+
+# Target group za backend
 
 resource "aws_lb_target_group" "backend" {
   name     = "vjencanje-backend-tg"
@@ -387,11 +337,11 @@ resource "aws_lb_target_group" "backend" {
   vpc_id   = aws_vpc.main.id
 
   health_check {
-    path                = "/api/health"
+    path                = "/notes"
     healthy_threshold   = 2
     unhealthy_threshold = 2
     interval            = 30
-    matcher             = "200-404"
+    matcher             = "200,404,422"
   }
 
   tags = {
@@ -411,17 +361,6 @@ resource "aws_lb_target_group_attachment" "backend_2" {
   port             = 8000
 }
 
-resource "aws_lb_listener" "main" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.main.arn
-  }
-}
-
 resource "aws_lb_listener_rule" "backend" {
   listener_arn = aws_lb_listener.main.arn
   priority     = 100
@@ -431,10 +370,9 @@ resource "aws_lb_listener_rule" "backend" {
     target_group_arn = aws_lb_target_group.backend.arn
   }
 
- condition {
-  path_pattern {
-    values = ["/notes", "/notes/*"]
+  condition {
+    path_pattern {
+      values = ["/notes", "/notes/*"]
+    }
   }
 }
-}
-
