@@ -234,8 +234,9 @@ locals {
   user_data = <<-EOF
     #!/bin/bash
     yum update -y
-    amazon-linux-extras install docker -y
-    service docker start
+    yum install -y docker
+    systemctl start docker
+    systemctl enable docker
     usermod -a -G docker ec2-user
     docker pull ${var.frontend_image}
     docker run -d -p 80:80 --name frontend ${var.frontend_image}
@@ -376,3 +377,49 @@ resource "aws_lb_listener_rule" "backend" {
     }
   }
 }
+
+/*
+# S3 Bucket za staticke fajlove
+resource "random_string" "suffix" {
+  length  = 8
+  special = false
+  upper   = false
+}
+
+resource "aws_s3_bucket" "static" {
+  bucket        = "vjencanje-app-static-${random_string.suffix.result}"
+  force_destroy = true
+  object_lock_enabled = false
+
+  tags = {
+    Name = "vjencanje-static"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "static" {
+  bucket = aws_s3_bucket.static.id
+
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
+}
+
+resource "aws_s3_bucket_policy" "static" {
+  bucket     = aws_s3_bucket.static.id
+  depends_on = [aws_s3_bucket_public_access_block.static]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.static.arn}/*"
+      }
+    ]
+  })
+}
+*/

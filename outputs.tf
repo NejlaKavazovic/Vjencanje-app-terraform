@@ -17,3 +17,10 @@ output "ec2_instance_2_ip" {
   description = "Javna IP adresa EC2 instance 2"
   value       = aws_instance.backend_2.public_ip
 }
+
+/*
+output "s3_bucket_name" {
+  description = "Naziv S3 bucketa za staticke fajlove"
+  value       = aws_s3_bucket.static.bucket
+}
+*/
